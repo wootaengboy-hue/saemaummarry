@@ -1,0 +1,64 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Common helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Candidates collection
+    match /candidates/{candidateId} {
+      allow read: if true; // Publicly readable profiles (silhouettes for non-admins)
+      
+      allow create: if isAdmin() && isValidCandidate(request.resource.data);
+      allow update: if isAdmin() && isValidCandidate(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Reviews collection
+    match /reviews/{reviewId} {
+      allow read: if true; // Publicly readable stories and reviews
+      allow create: if isValidReview(request.resource.data);
+      allow update: if isAdmin() && isValidReview(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Admins collection
+    match /admins/{adminId} {
+      allow read: if isSignedIn() && request.auth.uid == adminId;
+    }
+
+    function isValidCandidate(data) {
+      return data.keys().hasAll(['age', 'region', 'photo', 'occupation', 'description', 'updatedAt']) 
+        && data.age is number 
+        && data.region is string && data.region.size() <= 100
+        && data.photo is string && data.photo.size() <= 1000
+        && data.occupation is string && data.occupation.size() <= 100
+        && data.description is string && data.description.size() <= 2000
+        && data.updatedAt == request.time;
+    }
+
+    function isValidReview(data) {
+      return data.keys().hasAll(['title', 'content', 'author', 'date', 'image', 'createdAt'])
+        && data.title is string && data.title.size() <= 200
+        && data.content is string && data.content.size() <= 5000
+        && data.author is string && data.author.size() <= 50
+        && data.date is string && data.date.size() <= 20
+        && data.image is string && data.image.size() <= 1000
+        && data.createdAt == request.time;
+    }
+  }
+}

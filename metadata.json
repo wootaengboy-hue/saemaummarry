@@ -1,0 +1,8 @@
+{
+  "name": "새마음 국제결혼 - 인생 제2막의 시작",
+  "description": "우즈베키스탄 현지 직영 인프라와 투명한 정산 시스템으로 인생 제2막을 함께하는 국제결혼 컨설팅.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

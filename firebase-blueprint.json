@@ -1,0 +1,56 @@
+{
+  "entities": {
+    "candidate": {
+      "title": "Candidate",
+      "description": "A marriage candidate profile",
+      "type": "object",
+      "properties": {
+        "age": { "type": "number" },
+        "region": { "type": "string" },
+        "photo": { "type": "string" },
+        "occupation": { "type": "string" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["age", "region", "photo", "occupation", "description"]
+    },
+    "admin": {
+      "title": "Admin",
+      "description": "Admin users allowed to manage data",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" }
+      },
+      "required": ["email"]
+    },
+    "review": {
+      "title": "Review",
+      "description": "A success story / marriage review",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "author": { "type": "string" },
+        "date": { "type": "string" },
+        "image": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "content", "author", "date"]
+    }
+  },
+  "firestore": {
+    "/candidates/{candidateId}": {
+      "schema": "candidate",
+      "description": "Collection of candidate profiles"
+    },
+    "/admins/{adminId}": {
+      "schema": "admin",
+      "description": "Collection of admin users"
+    },
+    "/reviews/{reviewId}": {
+      "schema": "review",
+      "description": "Collection of success stories"
+    }
+  }
+}

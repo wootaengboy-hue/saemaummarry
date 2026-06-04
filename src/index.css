@@ -1,0 +1,24 @@
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Pretendard Variable", Pretendard, ui-sans-serif, system-ui, sans-serif;
+  
+  --color-brand-emerald: #065f46; /* emerald-800 */
+  --color-brand-emerald-dark: #064e3b; /* emerald-900 */
+}
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased selection:bg-emerald-100 break-keep break-words;
+  }
+  h1, h2, h3, h4, h5, h6, p, li, span, a, div {
+    @apply break-keep break-words;
+  }
+}
+
+@layer utilities {
+  .backdrop-blur-md {
+    backdrop-filter: blur(12px);
+  }
+}
