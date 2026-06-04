@@ -176,7 +176,17 @@ const TransparentImage = ({ src, threshold = 240, className, ...props }: Transpa
   return <img src={processedSrc} className={className} {...props} />;
 };
 
-const Header = ({ currentView, onNavigate, user }: { currentView: View, onNavigate: (view: View) => void, user: any }) => {
+const Header = ({ 
+  currentView, 
+  onNavigate, 
+  user, 
+  openLoginModal 
+}: { 
+  currentView: View, 
+  onNavigate: (view: View) => void, 
+  user: any, 
+  openLoginModal: () => void 
+}) => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -234,10 +244,19 @@ const Header = ({ currentView, onNavigate, user }: { currentView: View, onNaviga
           )}
         </nav>
 
-        <div className="hidden lg:block whitespace-nowrap">
+        <div className="hidden lg:flex items-center space-x-4 whitespace-nowrap">
+          {!user && (
+            <button 
+              onClick={openLoginModal}
+              className="flex items-center gap-1.5 text-slate-400 hover:text-slate-600 transition text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-200/50 hover:bg-slate-50 cursor-pointer"
+            >
+              <Lock size={12} />
+              <span>관리자 로그인</span>
+            </button>
+          )}
           <button 
             onClick={() => handleNav('home', true)}
-            className="bg-slate-900 text-white px-6 py-2.5 rounded-full text-sm font-semibold hover:bg-slate-800 transition shadow-sm"
+            className="bg-slate-900 text-white px-6 py-2.5 rounded-full text-sm font-semibold hover:bg-slate-800 transition shadow-sm cursor-pointer"
           >
             문의 및 신청
           </button>
@@ -267,10 +286,18 @@ const Header = ({ currentView, onNavigate, user }: { currentView: View, onNaviga
               <button onClick={() => handleNav('process')} className="text-left py-2 hover:text-emerald-800 transition">안심 동행 과정</button>
               <button onClick={() => handleNav('costs')} className="text-left py-2 hover:text-emerald-800 transition">비용 상세 내역</button>
               <button onClick={() => handleNav('infrastructure')} className="text-left py-2 hover:text-emerald-800 transition">직영 인프라</button>
-              {user && (
-                <button onClick={() => handleNav('admin')} className="text-left py-2 text-amber-700 font-bold flex items-center gap-1.5">
+              {user ? (
+                <button onClick={() => handleNav('admin')} className="text-left py-2 text-amber-700 font-bold flex items-center gap-1.5 justify-start">
                   <ShieldCheck size={16} />
-                  관리자 설정
+                  <span>관리자 설정</span>
+                </button>
+              ) : (
+                <button 
+                  onClick={() => { setIsMobileMenuOpen(false); openLoginModal(); }}
+                  className="text-left py-2 text-slate-400 font-bold flex items-center gap-1.5 justify-start"
+                >
+                  <Lock size={16} />
+                  <span>관리자 로그인</span>
                 </button>
               )}
               <button onClick={() => handleNav('home')} className="text-left py-2 hover:text-emerald-800 transition">홈으로</button>
@@ -3301,7 +3328,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen">
-      <Header currentView={currentView} onNavigate={handleNavigate} user={user} />
+      <Header currentView={currentView} onNavigate={handleNavigate} user={user} openLoginModal={() => setIsLoginModalOpen(true)} />
       <main>
         <AnimatePresence mode="wait">
           {currentView === 'home' ? (
