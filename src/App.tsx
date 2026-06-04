@@ -24,7 +24,10 @@ import {
   Save,
   LogOut,
   LogIn,
-  RefreshCw
+  RefreshCw,
+  Lock,
+  Mail,
+  Database
 } from 'lucide-react';
 import { APIProvider, Map, AdvancedMarker, Pin } from '@vis.gl/react-google-maps';
 import { 
@@ -39,7 +42,7 @@ import {
   orderBy
 } from 'firebase/firestore';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
-import { db, auth, signInWithGoogle, logout } from './lib/firebase';
+import { db, auth, signInWithGoogle, signInWithEmail, logout } from './lib/firebase';
 
 // --- Static Images for Production Build Safety ---
 import myNewLogo from './assets/images/my_new_logo.png';
@@ -109,7 +112,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 // --- Components ---
 
 // --- State Management ---
-type View = 'home' | 'philosophy' | 'process' | 'candidates' | 'costs' | 'infrastructure' | 'reviews';
+type View = 'home' | 'philosophy' | 'process' | 'candidates' | 'costs' | 'infrastructure' | 'reviews' | 'admin';
 
 // --- Transparent Image Component for White Backgrounds ---
 interface TransparentImageProps extends React.ImgHTMLAttributes<HTMLImageElement> {
@@ -173,7 +176,7 @@ const TransparentImage = ({ src, threshold = 240, className, ...props }: Transpa
   return <img src={processedSrc} className={className} {...props} />;
 };
 
-const Header = ({ currentView, onNavigate }: { currentView: View, onNavigate: (view: View) => void }) => {
+const Header = ({ currentView, onNavigate, user }: { currentView: View, onNavigate: (view: View) => void, user: any }) => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -223,6 +226,12 @@ const Header = ({ currentView, onNavigate }: { currentView: View, onNavigate: (v
           <button onClick={() => handleNav('process')} className={`hover:text-emerald-800 transition whitespace-nowrap ${currentView === 'process' ? 'text-emerald-800 underline underline-offset-8' : ''}`}>안심 동행 과정</button>
           <button onClick={() => handleNav('costs')} className={`hover:text-emerald-800 transition whitespace-nowrap ${currentView === 'costs' ? 'text-emerald-800 underline underline-offset-8' : ''}`}>비용 상세 내역</button>
           <button onClick={() => handleNav('infrastructure')} className={`hover:text-emerald-800 transition whitespace-nowrap ${currentView === 'infrastructure' ? 'text-emerald-800 underline underline-offset-8' : ''}`}>직영 인프라</button>
+          {user && (
+            <button onClick={() => handleNav('admin')} className={`hover:text-amber-600 text-amber-700 transition whitespace-nowrap font-black flex items-center gap-1.5 px-3 py-1 bg-amber-50 rounded-lg border border-amber-200/50 ${currentView === 'admin' ? 'bg-amber-100 ring-2 ring-amber-200' : ''}`}>
+              <ShieldCheck size={14} />
+              <span>관리자 설정</span>
+            </button>
+          )}
         </nav>
 
         <div className="hidden lg:block whitespace-nowrap">
@@ -258,6 +267,12 @@ const Header = ({ currentView, onNavigate }: { currentView: View, onNavigate: (v
               <button onClick={() => handleNav('process')} className="text-left py-2 hover:text-emerald-800 transition">안심 동행 과정</button>
               <button onClick={() => handleNav('costs')} className="text-left py-2 hover:text-emerald-800 transition">비용 상세 내역</button>
               <button onClick={() => handleNav('infrastructure')} className="text-left py-2 hover:text-emerald-800 transition">직영 인프라</button>
+              {user && (
+                <button onClick={() => handleNav('admin')} className="text-left py-2 text-amber-700 font-bold flex items-center gap-1.5">
+                  <ShieldCheck size={16} />
+                  관리자 설정
+                </button>
+              )}
               <button onClick={() => handleNav('home')} className="text-left py-2 hover:text-emerald-800 transition">홈으로</button>
               <button 
                 onClick={() => handleNav('home', true)}
@@ -443,9 +458,19 @@ const MOCK_CANDIDATES = [
   { id: 'mock-6', age: 23, region: "사마르칸트", photo: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&q=80&w=400", occupation: "요리사", description: "음식 솜씨가 좋으며 가정적인 반려자를 꿈꿉니다." },
 ];
 
-const CandidateIntroduction = ({ onNavigate }: { onNavigate: (view: View, scrollToContact?: boolean) => void }) => {
-  const [isAdminMode, setIsAdminMode] = useState(false);
-  const [user, setUser] = useState<FirebaseUser | null>(null);
+const CandidateIntroduction = ({ 
+  onNavigate,
+  user,
+  isAdminMode,
+  setIsAdminMode,
+  openLoginModal
+}: { 
+  onNavigate: (view: View, scrollToContact?: boolean) => void;
+  user: FirebaseUser | null;
+  isAdminMode: boolean;
+  setIsAdminMode: (mode: boolean) => void;
+  openLoginModal: () => void;
+}) => {
   const [candidates, setCandidates] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCandidate, setEditingCandidate] = useState<any | null>(null);
@@ -489,10 +514,6 @@ const CandidateIntroduction = ({ onNavigate }: { onNavigate: (view: View, scroll
   });
 
   useEffect(() => {
-    const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-    });
-
     const q = query(collection(db, 'candidates'), orderBy('updatedAt', 'desc'));
     const unsubscribeData = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -504,7 +525,6 @@ const CandidateIntroduction = ({ onNavigate }: { onNavigate: (view: View, scroll
     });
 
     return () => {
-      unsubscribeAuth();
       unsubscribeData();
     };
   }, []);
@@ -712,8 +732,8 @@ const CandidateIntroduction = ({ onNavigate }: { onNavigate: (view: View, scroll
             <div className="flex flex-col items-center md:items-end gap-2">
               {!user ? (
                 <button 
-                  onClick={signInWithGoogle}
-                  className="flex items-center space-x-2 text-xs text-slate-400 hover:text-slate-600 transition underline underline-offset-4"
+                  onClick={openLoginModal}
+                  className="flex items-center space-x-2 text-xs text-slate-400 hover:text-slate-600 transition underline underline-offset-4 cursor-pointer"
                 >
                   <LogIn size={14} />
                   <span>관리자 로그인</span>
@@ -2233,12 +2253,19 @@ const PRESET_IMAGES = [
   { name: "로맨틱 선셋", url: "https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&q=80&w=800" }
 ];
 
-const MarriageReviews = () => {
+const MarriageReviews = ({ 
+  user, 
+  isAdminMode, 
+  setIsAdminMode 
+}: { 
+  user: FirebaseUser | null; 
+  isAdminMode: boolean; 
+  setIsAdminMode: (mode: boolean) => void;
+}) => {
   const [selectedReview, setSelectedReview] = useState<any | null>(null);
   const [reviews, setReviews] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [isAdminMode, setIsAdminMode] = useState(false);
 
   // Form states
   const [reviewForm, setReviewForm] = useState({
@@ -2405,37 +2432,39 @@ const MarriageReviews = () => {
           </p>
         </div>
 
-        {/* Console / Action Hub */}
-        <div className="mb-12 flex flex-col sm:flex-row items-center justify-center gap-4">
-          <button 
-            onClick={() => setIsAddModalOpen(true)}
-            className="flex items-center space-x-2 bg-emerald-800 text-white px-8 py-4 rounded-2xl font-black shadow-lg hover:bg-emerald-900 transition-all transform hover:scale-105 animate-pulse cursor-pointer"
-          >
-            <Plus size={20} />
-            <span>성혼 후기 작성하기</span>
-          </button>
-
-          <button 
-            onClick={() => setIsAdminMode(!isAdminMode)}
-            className={`flex items-center space-x-2 px-6 py-4 rounded-2xl font-bold transition-all border ${
-              isAdminMode 
-                ? "bg-slate-900 text-white border-slate-900" 
-                : "bg-white text-slate-700 hover:bg-slate-100 border-slate-200"
-            }`}
-          >
-            <span>{isAdminMode ? "편집 완료" : "후기 편집/삭제 활성화"}</span>
-          </button>
-
-          {(localReviews.length > 0 || localDeletes.length > 0) && (
+        {/* Console / Action Hub for Admin Mode */}
+        {user && (
+          <div className="mb-12 flex flex-col sm:flex-row items-center justify-center gap-4">
             <button 
-              onClick={resetLocalReviews}
-              className="flex items-center space-x-2 bg-rose-50 text-rose-700 hover:bg-rose-100 px-6 py-4 rounded-2xl font-bold border border-rose-100/50 transition-all cursor-pointer"
+              onClick={() => setIsAddModalOpen(true)}
+              className="flex items-center space-x-2 bg-emerald-800 text-white px-8 py-4 rounded-2xl font-black shadow-lg hover:bg-emerald-900 transition-all transform hover:scale-105 animate-pulse cursor-pointer"
             >
-              <RefreshCw size={18} />
-              <span>로컬 데이터 초기화</span>
+              <Plus size={20} />
+              <span>성혼 후기 작성하기</span>
             </button>
-          )}
-        </div>
+
+            <button 
+              onClick={() => setIsAdminMode(!isAdminMode)}
+              className={`flex items-center space-x-2 px-6 py-4 rounded-2xl font-bold transition-all border ${
+                isAdminMode 
+                  ? "bg-slate-900 text-white border-slate-900" 
+                  : "bg-white text-slate-700 hover:bg-slate-100 border-slate-200"
+              }`}
+            >
+              <span>{isAdminMode ? "편집 완료" : "후기 편집/삭제 활성화"}</span>
+            </button>
+
+            {(localReviews.length > 0 || localDeletes.length > 0) && (
+              <button 
+                onClick={resetLocalReviews}
+                className="flex items-center space-x-2 bg-rose-50 text-rose-700 hover:bg-rose-100 px-6 py-4 rounded-2xl font-bold border border-rose-100/50 transition-all cursor-pointer"
+              >
+                <RefreshCw size={18} />
+                <span>로컬 데이터 초기화</span>
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Display Reviews Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -2895,9 +2924,293 @@ const PrivacyModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
   );
 };
 
+const AdminConsole = ({
+  user,
+  onLogout,
+  onLoginClick,
+  customGoogleFormUrl,
+  setCustomGoogleFormUrl,
+  customKakaoChUrl,
+  setCustomKakaoChUrl,
+  onNavigate
+}: {
+  user: FirebaseUser | null;
+  onLogout: () => void;
+  onLoginClick: () => void;
+  customGoogleFormUrl: string;
+  setCustomGoogleFormUrl: (url: string) => void;
+  customKakaoChUrl: string;
+  setCustomKakaoChUrl: (url: string) => void;
+  onNavigate: (view: View) => void;
+}) => {
+  const [googleInput, setGoogleInput] = useState(customGoogleFormUrl);
+  const [kakaoInput, setKakaoInput] = useState(customKakaoChUrl);
+
+  const handleSaveGoogle = (e: React.FormEvent) => {
+    e.preventDefault();
+    setCustomGoogleFormUrl(googleInput);
+    localStorage.setItem('test_google_form_url', googleInput);
+    alert("구글 설문지(새마음 신청서) 연동 주소가 수정 및 저장되었습니다.");
+  };
+
+  const handleSaveKakao = (e: React.FormEvent) => {
+    e.preventDefault();
+    setCustomKakaoChUrl(kakaoInput);
+    localStorage.setItem('test_kakao_ch_url', kakaoInput);
+    alert("카카오톡 1:1 상담 채널 연동 주소가 수정 및 저장되었습니다.");
+  };
+
+  const testLink = (url: string) => {
+    if (!url) {
+      alert("주소가 비어있습니다. 입력 후 테스트를 진행해 주세요.");
+      return;
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  if (!user) {
+    return (
+      <div className="bg-slate-50 min-h-screen pt-40 pb-24 px-6 flex items-center justify-center">
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white rounded-3xl p-10 shadow-xl border border-slate-200/60 max-w-md w-full text-center space-y-6"
+        >
+          <div className="w-16 h-16 bg-amber-50 text-amber-700 rounded-2xl flex items-center justify-center mx-auto">
+            <Lock size={32} />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-2xl font-black text-slate-900 tracking-tight">제한된 관리자 구역</h2>
+            <p className="text-slate-500 text-sm leading-relaxed">
+              본 페이지는 새마음 국제결혼 관리팀 전용 설정 공간입니다. 
+              일반 사용자에게 노출되지 않는 환경 변수 및 외부 링크 설정을 위해 로그인이 요구됩니다.
+            </p>
+          </div>
+          <button 
+            onClick={onLoginClick}
+            className="w-full py-4 bg-emerald-800 hover:bg-emerald-950 text-white font-extrabold rounded-2xl transition shadow-lg cursor-pointer flex items-center justify-center gap-2"
+          >
+            <LogIn size={18} />
+            관리자 로그인 하기
+          </button>
+        </motion.div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-slate-50 min-h-screen pt-40 pb-24 px-6">
+      <div className="max-w-4xl mx-auto space-y-10">
+        
+        {/* Header Block */}
+        <div className="bg-white rounded-3xl p-8 border border-slate-200/50 shadow-sm flex flex-col md:flex-row items-center justify-between gap-6">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 bg-emerald-100/80 text-emerald-800 rounded-2xl flex items-center justify-center shrink-0">
+              <ShieldCheck size={30} />
+            </div>
+            <div>
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Authenticated Administrator</p>
+              <h1 className="text-xl font-black text-slate-900">새마음 안전 제어 센터 (Admin Control)</h1>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 w-full md:w-auto justify-end">
+            <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200/50">{user.email}</span>
+            <button 
+              onClick={onLogout}
+              className="px-4 py-2 bg-rose-50 text-rose-700 font-bold text-sm rounded-xl border border-rose-100 hover:bg-rose-100 transition flex items-center gap-1.5 cursor-pointer"
+            >
+              <LogOut size={14} />
+              <span>로그아웃</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Integration Setup Panel */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          
+          {/* Card 1: Google Form URLs */}
+          <motion.div 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white rounded-3xl p-8 border border-slate-200/50 shadow-sm space-y-6 flex flex-col justify-between"
+          >
+            <div className="space-y-4">
+              <div className="w-12 h-12 bg-amber-50 text-amber-700 rounded-xl flex items-center justify-center">
+                <FileText size={22} />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-slate-900">새마음 상세 신청서 구글폼 설정</h3>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  일반 유저들이 메인 화면의 '상담 신청서 작성하기'를 클릭했을 때 이동할 구글 설문지(Google Form) 주소를 설정합니다.
+                </p>
+              </div>
+              
+              <form onSubmit={handleSaveGoogle} className="space-y-3">
+                <input 
+                  type="url" 
+                  required
+                  placeholder="https://docs.google.com/forms/d/..."
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm text-slate-800 font-medium"
+                  value={googleInput}
+                  onChange={(e) => setGoogleInput(e.target.value)}
+                />
+                <button 
+                  type="submit"
+                  className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-extrabold rounded-xl text-xs transition cursor-pointer"
+                >
+                  구글 신청서 링크 저장하기
+                </button>
+              </form>
+            </div>
+            
+            <div className="border-t border-slate-100 pt-4 flex items-center justify-between text-xs text-slate-500">
+              <span className="font-bold">현재 연결 상태: {customGoogleFormUrl ? "✅ 설정됨" : "⚠️ 미지정"}</span>
+              <button 
+                onClick={() => testLink(customGoogleFormUrl)}
+                className="text-emerald-700 font-extrabold hover:underline"
+              >
+                테스트 이동하기 →
+              </button>
+            </div>
+          </motion.div>
+
+          {/* Card 2: KakaoTalk Link Settings */}
+          <motion.div 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="bg-white rounded-3xl p-8 border border-slate-200/50 shadow-sm space-y-6 flex flex-col justify-between"
+          >
+            <div className="space-y-4">
+              <div className="w-12 h-12 bg-[#FFF9C4] text-[#F57F17] rounded-xl flex items-center justify-center">
+                <MessageSquare size={22} />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-slate-900">카카오톡 1:1 상담 링크 설정</h3>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  일반 유저들이 '카카오톡 실시간 상담' 클릭 시 이동할 카카오 pf 채널 등 주소를 설정합니다.
+                </p>
+              </div>
+              
+              <form onSubmit={handleSaveKakao} className="space-y-3">
+                <input 
+                  type="url" 
+                  required
+                  placeholder="https://pf.kakao.com/..."
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm text-slate-800 font-medium"
+                  value={kakaoInput}
+                  onChange={(e) => setKakaoInput(e.target.value)}
+                />
+                <button 
+                  type="submit"
+                  className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-extrabold rounded-xl text-xs transition cursor-pointer"
+                >
+                  카카오 상담 링크 저장하기
+                </button>
+              </form>
+            </div>
+            
+            <div className="border-t border-slate-100 pt-4 flex items-center justify-between text-xs text-slate-500">
+              <span className="font-bold">현재 연결 상태: {customKakaoChUrl ? "✅ 설정됨" : "⚠️ 미지정"}</span>
+              <button 
+                onClick={() => testLink(customKakaoChUrl)}
+                className="text-emerald-700 font-extrabold hover:underline"
+              >
+                테스트 이동하기 →
+              </button>
+            </div>
+          </motion.div>
+
+        </div>
+
+        {/* Content Management Quick Gateway */}
+        <div className="bg-white rounded-3xl p-8 border border-slate-200/50 shadow-sm space-y-6">
+          <div className="flex items-center gap-2">
+            <Database size={20} className="text-slate-700" />
+            <h3 className="text-lg font-black text-slate-900">콘텐츠 직접 관리 지침</h3>
+          </div>
+          <p className="text-sm text-slate-500 leading-relaxed">
+            새마음 웹 플랫폼의 핵심 정보와 후기 관리는 아래 바로가기를 통해 해당 페이지에서 각 <strong>편집/삭제 모드</strong>를 켠 채 안전하게 수행하실 수 있습니다. 
+            일반 사용자 방문 시에는 관리자 인증이 완료되지 않으므로 추가, 편집 버튼이 완전히 감춰집니다.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <button 
+              onClick={() => onNavigate('candidates')}
+              className="p-5 bg-slate-50 hover:bg-emerald-50 text-left rounded-2xl border border-slate-200/60 hover:border-emerald-200 transition group flex items-center justify-between cursor-pointer"
+            >
+              <div>
+                <p className="font-black text-slate-900 text-sm group-hover:text-emerald-950">반려자 소개 데이터 관리</p>
+                <p className="text-[11px] text-slate-400 font-semibold group-hover:text-emerald-600 mt-1">프로필 추가, 비공개, 상세 정보 기입/수정</p>
+              </div>
+              <ArrowRight size={16} className="text-slate-400 group-hover:text-emerald-700 transform group-hover:translate-x-1 transition" />
+            </button>
+            <button 
+              onClick={() => onNavigate('reviews')}
+              className="p-5 bg-slate-50 hover:bg-emerald-50 text-left rounded-2xl border border-slate-200/60 hover:border-emerald-200 transition group flex items-center justify-between cursor-pointer"
+            >
+              <div>
+                <p className="font-black text-slate-900 text-sm group-hover:text-emerald-950">성혼 후기 게시글 관리</p>
+                <p className="text-[11px] text-slate-400 font-semibold group-hover:text-emerald-600 mt-1">실시간 성혼 스토리 업로드 및 삭제처리</p>
+              </div>
+              <ArrowRight size={16} className="text-slate-400 group-hover:text-emerald-700 transform group-hover:translate-x-1 transition" />
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+};
+
 export default function App() {
   const [currentView, setCurrentView] = useState<View>('home');
   const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
+
+  // Global Auth States
+  const [isAdminMode, setIsAdminMode] = useState(false);
+  const [user, setUser] = useState<any>(null);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [nonAdminAlert, setNonAdminAlert] = useState<'google' | 'kakao' | null>(null);
+
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      if (u) {
+        setIsAdminMode(true);
+      } else {
+        setIsAdminMode(false);
+      }
+    });
+    return () => unsubscribeAuth();
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      setUser(null);
+      setIsAdminMode(false);
+      setCurrentView('home');
+      alert("로그아웃 정상 완료되었습니다.");
+    } catch (err: any) {
+      alert("로그아웃 처리 실패: " + err.message);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    try {
+      const userCredential = await signInWithGoogle();
+      setUser(userCredential.user);
+      setIsAdminMode(true);
+      setIsLoginModalOpen(false);
+      alert("구글 계정으로 로그인되었습니다.");
+    } catch (err: any) {
+      console.error(err);
+      alert("구글 로그인을 할 수 없습니다: " + (err.message || err));
+    }
+  };
 
   // Google / Kakao states lifted
   const [activeModal, setActiveModal] = useState<'google' | 'kakao' | null>(null);
@@ -2928,14 +3241,22 @@ export default function App() {
   const handleGoogleClick = (e: React.MouseEvent) => {
     if (!isGoogleFormConfigured) {
       e.preventDefault();
-      setActiveModal('google');
+      if (user) {
+        setActiveModal('google');
+      } else {
+        setNonAdminAlert('google');
+      }
     }
   };
 
   const handleKakaoClick = (e: React.MouseEvent) => {
     if (!isKakaoChConfigured) {
       e.preventDefault();
-      setActiveModal('kakao');
+      if (user) {
+        setActiveModal('kakao');
+      } else {
+        setNonAdminAlert('kakao');
+      }
     }
   };
 
@@ -2980,7 +3301,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen">
-      <Header currentView={currentView} onNavigate={handleNavigate} />
+      <Header currentView={currentView} onNavigate={handleNavigate} user={user} />
       <main>
         <AnimatePresence mode="wait">
           {currentView === 'home' ? (
@@ -3021,7 +3342,13 @@ export default function App() {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.3 }}
             >
-              <CandidateIntroduction onNavigate={handleNavigate} />
+              <CandidateIntroduction 
+                onNavigate={handleNavigate} 
+                user={user}
+                isAdminMode={isAdminMode}
+                setIsAdminMode={setIsAdminMode}
+                openLoginModal={() => setIsLoginModalOpen(true)}
+              />
             </motion.div>
           ) : currentView === 'costs' ? (
             <motion.div
@@ -3051,7 +3378,30 @@ export default function App() {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.3 }}
             >
-              <MarriageReviews />
+              <MarriageReviews 
+                user={user}
+                isAdminMode={isAdminMode}
+                setIsAdminMode={setIsAdminMode}
+              />
+            </motion.div>
+          ) : currentView === 'admin' ? (
+            <motion.div
+              key="admin"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3 }}
+            >
+              <AdminConsole 
+                user={user}
+                onLogout={handleLogout}
+                onLoginClick={() => setIsLoginModalOpen(true)}
+                customGoogleFormUrl={customGoogleFormUrl}
+                setCustomGoogleFormUrl={setCustomGoogleFormUrl}
+                customKakaoChUrl={customKakaoChUrl}
+                setCustomKakaoChUrl={setCustomKakaoChUrl}
+                onNavigate={handleNavigate}
+              />
             </motion.div>
           ) : (
             <motion.div
@@ -3075,9 +3425,235 @@ export default function App() {
       />
       <PrivacyModal isOpen={isPrivacyOpen} onClose={() => setIsPrivacyOpen(false)} />
 
+      {/* Global Admin Login Modal */}
+      <AnimatePresence>
+        {isLoginModalOpen && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsLoginModalOpen(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden z-10 border border-slate-100 p-8 flex flex-col"
+            >
+              <button 
+                onClick={() => setIsLoginModalOpen(false)}
+                className="absolute top-6 right-6 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+
+              <div className="mb-6 text-center">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-800 flex items-center justify-center mx-auto mb-3">
+                  <ShieldCheck size={24} />
+                </div>
+                <h3 className="text-xl font-black text-slate-900">관리자 인증</h3>
+                <p className="text-slate-500 text-xs mt-1">
+                  새마음 안전 관리 시스템에 오신 것을 환영합니다.
+                </p>
+              </div>
+
+              {loginError && (
+                <div className="bg-rose-50 text-rose-700 p-3 rounded-xl text-xs font-semibold mb-4 border border-rose-100 flex items-center gap-2">
+                  <span>⚠️</span>
+                  {loginError}
+                </div>
+              )}
+
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                setLoginError('');
+                
+                const emailInput = loginEmail.trim();
+                const passwordInput = loginPassword;
+                
+                if (!passwordInput) {
+                  setLoginError("비밀번호 또는 마스터 코드를 입력해주세요.");
+                  return;
+                }
+
+                // Check local master key fallback first
+                if (passwordInput === 'saemaum2026' || (emailInput.toLowerCase() === 'admin' && passwordInput === 'saemaum2026')) {
+                  const masterUser = { 
+                    email: 'admin@saemaum.com', 
+                    emailVerified: true,
+                    uid: 'master-local',
+                    displayName: '마스터 관리자'
+                  };
+                  setUser(masterUser as any);
+                  setIsAdminMode(true);
+                  setIsLoginModalOpen(false);
+                  setLoginEmail('');
+                  setLoginPassword('');
+                  alert("새마음 마스터 권한으로 간편하게 인증되었습니다! (수정 및 추가 내역이 브라우저에 안전히 저장됩니다)");
+                  return;
+                }
+
+                // If they entered an email and want to try real firebase auth
+                if (!emailInput) {
+                  setLoginError("이메일을 입력하시거나 혹은 비밀번호 입력창에 바로 마스터 코드 'saemaum2026'을 입력하세요.");
+                  return;
+                }
+
+                try {
+                  const userCredential = await signInWithEmail(emailInput, passwordInput);
+                  setUser(userCredential.user);
+                  setIsAdminMode(true);
+                  setIsLoginModalOpen(false);
+                  setLoginEmail('');
+                  setLoginPassword('');
+                  alert("관리자 계정으로 환영합니다!");
+                } catch (err: any) {
+                  console.error(err);
+                  let displayMsg = "로그인에 실패했습니다. 이메일과 비밀번호를 다시 확인해 주세요.";
+                  if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
+                    displayMsg = "등록되지 않은 관리자 이메일이거나 비밀번호가 다릅니다.";
+                  }
+                  setLoginError(displayMsg);
+                }
+              }} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">관리자 이메일 (Firebase)</label>
+                  <div className="relative">
+                    <input 
+                      type="text" 
+                      placeholder="admin@example.com (또는 마스터 키 로그인 시 공란)" 
+                      className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-medium text-slate-800"
+                      value={loginEmail}
+                      onChange={(e) => setLoginEmail(e.target.value)}
+                    />
+                    <div className="absolute left-3.5 top-3.5 text-slate-400">
+                      <Mail size={16} />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">관리자 비밀번호 또는 마스터 코드 *</label>
+                  <div className="relative">
+                    <input 
+                      type="password" 
+                      required
+                      placeholder="비밀번호 또는 마스터 코드 가령 'saemaum2026' 입력" 
+                      className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-medium text-slate-800"
+                      value={loginPassword}
+                      onChange={(e) => setLoginPassword(e.target.value)}
+                    />
+                    <div className="absolute left-3.5 top-3.5 text-slate-400">
+                      <Lock size={16} />
+                    </div>
+                  </div>
+                </div>
+
+                <button 
+                  type="submit"
+                  className="w-full py-3.5 bg-emerald-800 hover:bg-emerald-900 text-white font-extrabold rounded-xl transition text-sm shadow-md mt-2 cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <ShieldCheck size={18} />
+                  로그인 인증하기
+                </button>
+              </form>
+
+              {/* Separator lines */}
+              <div className="relative my-5">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-100"></div>
+                </div>
+                <div className="relative flex justify-center text-xs">
+                  <span className="px-3 bg-white text-slate-400 font-bold">또는 간편인증</span>
+                </div>
+              </div>
+
+              {/* Google Sign-in Alternative */}
+              <button
+                type="button"
+                onClick={handleGoogleLogin}
+                className="w-full py-3 bg-white hover:bg-slate-50 text-slate-700 font-bold rounded-xl border border-slate-200 transition text-sm flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+              >
+                <span className="text-lg font-black text-[#4285F4]">G</span>
+                <span>구글 계정으로 로그인</span>
+              </button>
+
+              <div className="mt-5 text-[11px] text-slate-400 leading-relaxed text-center space-y-1">
+                <p>※ 마스터 코드 <span className="font-bold text-emerald-800 select-all p-0.5 bg-emerald-50 rounded">saemaum2026</span>을 비밀번호란에 바로 입력하여 로그인할 수 있습니다.</p>
+                <p>※ 구글 팝업 오류 발생 시 혹은 깃허브 배포 환경에서는 마스터 코드를 권장합니다.</p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Client-facing Unconfigured Graceful Notice */}
+      <AnimatePresence>
+        {nonAdminAlert && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setNonAdminAlert(null)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden z-10 border border-slate-100 p-8 text-center space-y-6"
+            >
+              <button 
+                onClick={() => setNonAdminAlert(null)}
+                className="absolute top-6 right-6 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+
+              <div className="w-16 h-16 bg-emerald-50 text-emerald-800 rounded-2xl flex items-center justify-center mx-auto">
+                <CheckCircle2 size={32} />
+              </div>
+              
+              <div className="space-y-2">
+                <h3 className="text-xl font-black text-slate-900 tracking-tight">안심 고객 지원 센터</h3>
+                <p className="text-slate-500 text-xs font-semibold leading-relaxed">
+                  {nonAdminAlert === 'google' 
+                    ? "현재 안전한 비대면 상담 신청서 접수 시스템의 상시 보안 점검이 진행되고 있습니다." 
+                    : "현재 카카오톡 실시간 1:1 상담 채널 정기 점검이 작동하고 있습니다."}
+                </p>
+                <p className="text-slate-600 text-sm leading-relaxed font-medium bg-slate-50 p-4 rounded-xl border border-slate-100">
+                  불편을 드려 죄송합니다. 새마음 고객지원 직통 핫라인 
+                  <strong className="text-emerald-800 block text-lg font-black tracking-tight mt-1">010-1234-5678</strong>
+                  으로 전화 연락 주시면 즉시 가입 서류 검토 및 맞춤 상담 예약을 진행해 드리겠습니다.
+                </p>
+              </div>
+
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setNonAdminAlert(null)}
+                  className="flex-1 py-3 bg-slate-100 text-slate-700 font-bold text-sm rounded-xl hover:bg-slate-200 transition"
+                >
+                  닫기
+                </button>
+                <a 
+                  href="tel:010-1234-5678"
+                  className="flex-1 py-3 bg-emerald-800 hover:bg-emerald-900 text-white font-extrabold text-sm rounded-xl transition shadow-md flex items-center justify-center gap-1.5"
+                >
+                  <Phone size={14} />
+                  전화상담 연결
+                </a>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Connection Link Setup Modal */}
       <AnimatePresence>
-        {activeModal && (
+        {user && activeModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             {/* Backdrop */}
             <motion.div 
