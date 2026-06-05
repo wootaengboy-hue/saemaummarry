@@ -11,8 +11,17 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isOwner() {
+      return isSignedIn() && 
+        request.auth.token.email == 'wootaengboy@gmail.com' && 
+        request.auth.token.email_verified == true;
+    }
+
     function isAdmin() {
-      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      return isSignedIn() && (
+        isOwner() || 
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
     }
 
     function isValidId(id) {
@@ -38,7 +47,15 @@ service cloud.firestore {
 
     // Admins collection
     match /admins/{adminId} {
-      allow read: if isSignedIn() && request.auth.uid == adminId;
+      allow read: if isSignedIn() && (request.auth.uid == adminId || isAdmin());
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Users (registered staff/employees) collection
+    match /users/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow create, update: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow delete: if isAdmin();
     }
 
     function isValidCandidate(data) {

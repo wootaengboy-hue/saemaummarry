@@ -20,9 +20,26 @@
       "description": "Admin users allowed to manage data",
       "type": "object",
       "properties": {
-        "email": { "type": "string" }
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string" }
       },
       "required": ["email"]
+    },
+    "user": {
+      "title": "User",
+      "description": "Registered employee profile and their permission role",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["pending", "approved", "master"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
     },
     "review": {
       "title": "Review",
@@ -47,6 +64,10 @@
     "/admins/{adminId}": {
       "schema": "admin",
       "description": "Collection of admin users"
+    },
+    "/users/{userId}": {
+      "schema": "user",
+      "description": "Collection of registered employees and their roles"
     },
     "/reviews/{reviewId}": {
       "schema": "review",

@@ -39,7 +39,8 @@ import {
   doc, 
   serverTimestamp,
   query,
-  orderBy
+  orderBy,
+  setDoc
 } from 'firebase/firestore';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { db, auth, signInWithGoogle, signInWithEmail, logout } from './lib/firebase';
@@ -2953,6 +2954,7 @@ const PrivacyModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
 
 const AdminConsole = ({
   user,
+  userRole,
   onLogout,
   onLoginClick,
   customGoogleFormUrl,
@@ -2962,6 +2964,7 @@ const AdminConsole = ({
   onNavigate
 }: {
   user: FirebaseUser | null;
+  userRole: 'pending' | 'approved' | 'master' | null;
   onLogout: () => void;
   onLoginClick: () => void;
   customGoogleFormUrl: string;
@@ -2972,6 +2975,96 @@ const AdminConsole = ({
 }) => {
   const [googleInput, setGoogleInput] = useState(customGoogleFormUrl);
   const [kakaoInput, setKakaoInput] = useState(customKakaoChUrl);
+  
+  // Real-time roster of registered employee accounts
+  const [staffUsers, setStaffUsers] = useState<any[]>([]);
+  const [loadingStaff, setLoadingStaff] = useState(true);
+
+  useEffect(() => {
+    if (!user || (userRole !== 'approved' && userRole !== 'master')) return;
+
+    // Fetch and subscribe to registered users in real-time
+    const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const usersList: any[] = [];
+      snapshot.forEach((docSnap) => {
+        usersList.push({ id: docSnap.id, ...docSnap.data() });
+      });
+      setStaffUsers(usersList);
+      setLoadingStaff(false);
+    }, (error) => {
+      console.error("Error loading staff list:", error);
+      setLoadingStaff(false);
+    });
+
+    return () => unsubscribe();
+  }, [user, userRole]);
+
+  const handleToggleRole = async (targetUser: any) => {
+    if (targetUser.role === 'master' || targetUser.email === 'wootaengboy@gmail.com') {
+      alert("최고 마스터 권한 계정(소유자)은 등급을 변경할 수 없습니다.");
+      return;
+    }
+
+    const isCurrentApproved = targetUser.role === 'approved';
+    const newRole = isCurrentApproved ? 'pending' : 'approved';
+    const msg = isCurrentApproved 
+      ? `"${targetUser.displayName}" 님의 관리자 임명을 철회하고 일반 등록 대기(Pending) 상태로 환원하시겠습니까?\n철회 시 해당 직원의 반려자 및 성혼후기 정보 수정 권한이 상실됩니다.` 
+      : `"${targetUser.displayName}" 님을 '정식 직원 관리자(Approved)'로 승인하시겠습니까?\n승인 시 데이터 연동 관리 및 반려자 소개, 성혼후기 등록/편집/삭제 권한이 부여됩니다.`;
+
+    if (window.confirm(msg)) {
+      try {
+        // 1. Update standard users list
+        await updateDoc(doc(db, 'users', targetUser.id), {
+          role: newRole,
+          updatedAt: new Date().toISOString()
+        });
+
+        // 2. Synchronize to 'admins' collection to pass secure firestore.rules gates
+        if (newRole === 'approved') {
+          await setDoc(doc(db, 'admins', targetUser.id), {
+            email: targetUser.email,
+            displayName: targetUser.displayName || '직원',
+            role: 'approved',
+            approvedAt: new Date().toISOString()
+          });
+        } else {
+          try {
+            await deleteDoc(doc(db, 'admins', targetUser.id));
+          } catch (e) {
+            console.warn("Ex-admin document was not stored or already removed:", e);
+          }
+        }
+
+        alert(`보안 인가 완료: ${targetUser.displayName} 님의 계정이 [${newRole === 'approved' ? '정식 승인' : '승인 대기'}] 상태로 성공적으로 전환되었습니다.`);
+      } catch (err: any) {
+        alert("승인 처리 과정에서 에러가 발생했습니다: " + err.message);
+      }
+    }
+  };
+
+  const handleDeleteUser = async (targetUser: any) => {
+    if (targetUser.role === 'master' || targetUser.email === 'wootaengboy@gmail.com') {
+      alert("최고 마스터 권한 계정은 파기할 수 없습니다.");
+      return;
+    }
+
+    const msg = `"${targetUser.displayName}" 님의 임직원 가입 정보를 목록에서 완전히 반려 및 영구 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`;
+    
+    if (window.confirm(msg)) {
+      try {
+        // Delete from 'users' and 'admins' collections
+        await deleteDoc(doc(db, 'users', targetUser.id));
+        try {
+          await deleteDoc(doc(db, 'admins', targetUser.id));
+        } catch (e) {}
+
+        alert("해당 계정 정보가 전산상에서 완전 차단 및 삭제 처리되었습니다.");
+      } catch (err: any) {
+        alert("계정 정보 파기 실패: " + err.message);
+      }
+    }
+  };
 
   const handleSaveGoogle = (e: React.FormEvent) => {
     e.preventDefault();
@@ -3020,6 +3113,57 @@ const AdminConsole = ({
             <LogIn size={18} />
             관리자 로그인 하기
           </button>
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (userRole === 'pending') {
+    return (
+      <div className="bg-slate-50 min-h-screen pt-40 pb-24 px-6 flex items-center justify-center">
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white rounded-3xl p-10 shadow-xl border border-slate-200/60 max-w-lg w-full text-center space-y-6"
+        >
+          <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mx-auto">
+            <Clock size={32} className="animate-pulse" />
+          </div>
+          <div className="space-y-3">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-800 text-xs font-black rounded-full border border-amber-100/50">
+              <span className="w-1.5 h-1.5 bg-amber-600 rounded-full animate-ping"></span>
+              <span>승인 대기 중 (Pending)</span>
+            </div>
+            <h2 className="text-2xl font-black text-slate-900 tracking-tight">직원 계정 승인 대기</h2>
+            <p className="text-slate-600 text-sm leading-relaxed font-semibold">
+              안녕하세요, <span className="text-emerald-800 font-extrabold">{user.displayName || user.email}</span> 직원 님
+            </p>
+            <p className="text-slate-500 text-xs leading-relaxed">
+              본 시스템은 개인 정보 다중 안전 처리가 이루어지는 <strong>새마음 국제결혼 전산 내부망</strong>입니다.<br />
+              현재 임직원 구글 계정에 대한 보안 승인이 임시 대기 상태입니다.<br /><br />
+              대표 최고 관리자(wootaengboy@gmail.com) 혹은 기존 승인된 팀원이 <strong>'전산 제어 센터'</strong>에서 직접 귀하의 계정을 [정식 관리자]로 활성화 처리해 주시면 즉시 반려자 프로필 관리 및 성혼 후기 편집 권한이 인가됩니다.
+            </p>
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 text-left text-xs space-y-1.5 text-slate-600 shadow-inner">
+              <p>• <span className="text-slate-400">등록 이메일:</span> {user.email}</p>
+              <p>• <span className="text-slate-400">대기 상태:</span> Active Sync (실시간 인가 감지 대기 중)</p>
+              <p>• <span className="text-slate-400">안내:</span> 시스템에서 원격 권한 승인 완료 시, 본 화면이 전체 관리 대시보드로 자동 갱신됩니다.</p>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <button 
+              onClick={onLogout}
+              className="flex-1 py-3.5 bg-rose-50 text-rose-700 font-bold text-sm rounded-xl border border-rose-100 hover:bg-rose-100 transition flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <LogOut size={14} />
+              <span>로그아웃</span>
+            </button>
+            <button 
+              onClick={() => onNavigate('home')}
+              className="flex-1 py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-black text-sm rounded-xl transition shadow-md cursor-pointer"
+            >
+              홈페이지 가기
+            </button>
+          </div>
         </motion.div>
       </div>
     );
@@ -3150,6 +3294,113 @@ const AdminConsole = ({
 
         </div>
 
+        {/* Staff Verification & Account Control panel */}
+        <motion.div 
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+          className="bg-white rounded-3xl p-8 border border-slate-200/50 shadow-sm space-y-6"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-slate-100 text-slate-800 rounded-xl flex items-center justify-center animate-pulse">
+                <Users size={18} />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-slate-900">임직원 계정 승인 및 권한 제어</h3>
+                <p className="text-xs text-slate-500 mt-0.5">직원들이 본인의 구글 계정으로 로그인한 경우, 여기서 승인해야 전체 반려자 프로필 및 성혼후기 수정 권한이 부여됩니다.</p>
+              </div>
+            </div>
+            <div className="inline-flex items-center gap-1.5 text-xs text-emerald-800 bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-100/50 font-bold shrink-0 self-start sm:self-center">
+              Active Sync Live
+            </div>
+          </div>
+
+          {loadingStaff ? (
+            <div className="text-center py-10 text-slate-400 text-xs flex flex-col items-center justify-center gap-3">
+              <RefreshCw size={24} className="animate-spin text-emerald-700" />
+              <span>임직원 회원 데이터를 불러오는 중입니다...</span>
+            </div>
+          ) : staffUsers.length === 0 ? (
+            <div className="text-center py-12 bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-slate-400 text-xs">
+              등록 신청한 직원 계정이 존재하지 않습니다.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[600px]">
+                <thead>
+                  <tr className="border-b border-slate-100 text-slate-400 text-[11px] font-bold uppercase tracking-wider">
+                    <th className="pb-3 pl-2">직원 프로필</th>
+                    <th className="pb-3">이메일</th>
+                    <th className="pb-3">등록 일시</th>
+                    <th className="pb-2 text-center">보안 권한 등급</th>
+                    <th className="pb-2 text-right pr-2">보안 상태 전환</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50 text-xs font-medium">
+                  {staffUsers.map((staff) => {
+                    const isMaster = staff.role === 'master' || staff.email === 'wootaengboy@gmail.com';
+                    const isApproved = staff.role === 'approved' || isMaster;
+                    
+                    return (
+                      <tr key={staff.id} className="hover:bg-slate-50/50 transition duration-150">
+                        <td className="py-4 pl-2 font-bold text-slate-800 flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-full bg-slate-100 overflow-hidden border border-slate-200 flex items-center justify-center shrink-0">
+                            {staff.photoURL ? (
+                              <img src={staff.photoURL} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            ) : (
+                              <User size={14} className="text-slate-400" />
+                            )}
+                          </div>
+                          <span>{staff.displayName}</span>
+                        </td>
+                        <td className="py-4 text-slate-500 font-mono text-[11px] select-all">{staff.email}</td>
+                        <td className="py-4 text-slate-400">{staff.createdAt ? new Date(staff.createdAt).toLocaleDateString() : 'N/A'}</td>
+                        <td className="py-2 text-center">
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black ${
+                            isMaster 
+                              ? 'bg-purple-50 text-purple-700 border border-purple-100' 
+                              : isApproved 
+                                ? 'bg-emerald-50 text-emerald-800 border border-emerald-100' 
+                                : 'bg-rose-50 text-rose-700 border border-rose-100'
+                          }`}>
+                            <span className={`w-1 h-1 rounded-full ${isMaster ? 'bg-purple-600' : isApproved ? 'bg-emerald-600' : 'bg-rose-600 animate-ping'}`}></span>
+                            {isMaster ? '마스터 최고관리자' : isApproved ? '정식 직원관리자' : '승인 대기(Pending)'}
+                          </span>
+                        </td>
+                        <td className="py-2 text-right pr-2 space-x-2">
+                          {!isMaster ? (
+                            <>
+                              <button
+                                onClick={() => handleToggleRole(staff)}
+                                className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                                  isApproved 
+                                    ? 'bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-100' 
+                                    : 'bg-emerald-800 hover:bg-emerald-900 text-white shadow-sm'
+                                }`}
+                              >
+                                {isApproved ? '권한 승인회수' : '관리자 권한승인'}
+                              </button>
+                              <button
+                                onClick={() => handleDeleteUser(staff)}
+                                className="px-2 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-100 rounded-lg text-[10px] font-bold transition cursor-pointer"
+                              >
+                                반려/파기
+                              </button>
+                            </>
+                          ) : (
+                            <span className="text-[10px] text-slate-400 font-bold italic">권한 잠금</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </motion.div>
+
         {/* Content Management Quick Gateway */}
         <div className="bg-white rounded-3xl p-8 border border-slate-200/50 shadow-sm space-y-6">
           <div className="flex items-center gap-2">
@@ -3196,6 +3447,7 @@ export default function App() {
   // Global Auth States
   const [isAdminMode, setIsAdminMode] = useState(false);
   const [user, setUser] = useState<any>(null);
+  const [userRole, setUserRole] = useState<'pending' | 'approved' | 'master' | null>(null);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -3203,21 +3455,89 @@ export default function App() {
   const [nonAdminAlert, setNonAdminAlert] = useState<'google' | 'kakao' | null>(null);
 
   useEffect(() => {
-    const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
+    let unsubscribeUser: (() => void) | null = null;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (u) => {
+      // Clean up previous user snapshot listener if any
+      if (unsubscribeUser) {
+        unsubscribeUser();
+        unsubscribeUser = null;
+      }
+
       setUser(u);
       if (u) {
-        setIsAdminMode(true);
+        if (u.uid === 'master-local') {
+          setUserRole('master');
+          setIsAdminMode(true);
+        } else {
+          try {
+            const userDocRef = doc(db, 'users', u.uid);
+            
+            // Subscribing to user document updates in Firestore
+            unsubscribeUser = onSnapshot(userDocRef, (snapshot) => {
+              if (snapshot.exists()) {
+                const data = snapshot.data();
+                const role = data.role || 'pending';
+                setUserRole(role);
+                setIsAdminMode(role === 'approved' || role === 'master');
+              } else {
+                // Not registered yet. Register default info.
+                const isAutoMaster = u.email === 'wootaengboy@gmail.com';
+                const defaultRole: 'pending' | 'approved' | 'master' = isAutoMaster ? 'master' : 'pending';
+                
+                // Set Firestore users collection entry
+                setDoc(userDocRef, {
+                  uid: u.uid,
+                  email: u.email || '',
+                  displayName: u.displayName || u.email?.split('@')[0] || '직원',
+                  photoURL: u.photoURL || '',
+                  role: defaultRole,
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString()
+                }, { merge: true }).catch(err => console.error("Error creating user profile document:", err));
+
+                // If they are wootaengboy@gmail.com, dynamically add to admins collection for rules validation
+                if (isAutoMaster) {
+                  setDoc(doc(db, 'admins', u.uid), {
+                    email: u.email,
+                    displayName: u.displayName || '대표 관리자',
+                    role: 'master'
+                  }).catch(err => console.error("Error creating master administration entry:", err));
+                }
+
+                setUserRole(defaultRole);
+                setIsAdminMode(defaultRole === 'master');
+              }
+            }, (error) => {
+              console.error("Firestore user document subscription failed:", error);
+              const isAutoMaster = u.email === 'wootaengboy@gmail.com';
+              setUserRole(isAutoMaster ? 'master' : 'pending');
+              setIsAdminMode(isAutoMaster);
+            });
+          } catch (error) {
+            console.error("User document lookup error:", error);
+            const isAutoMaster = u.email === 'wootaengboy@gmail.com';
+            setUserRole(isAutoMaster ? 'master' : 'pending');
+            setIsAdminMode(isAutoMaster);
+          }
+        }
       } else {
+        setUserRole(null);
         setIsAdminMode(false);
       }
     });
-    return () => unsubscribeAuth();
+
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeUser) unsubscribeUser();
+    };
   }, []);
 
   const handleLogout = async () => {
     try {
       await logout();
       setUser(null);
+      setUserRole(null);
       setIsAdminMode(false);
       setCurrentView('home');
       alert("로그아웃 정상 완료되었습니다.");
@@ -3228,14 +3548,41 @@ export default function App() {
 
   const handleGoogleLogin = async () => {
     try {
-      const userCredential = await signInWithGoogle();
-      setUser(userCredential.user);
-      setIsAdminMode(true);
+      await signInWithGoogle();
       setIsLoginModalOpen(false);
-      alert("구글 계정으로 로그인되었습니다.");
+      alert("구글 연동 로그인이 안전하게 완료되었습니다.\n등록/승인된 직원 계정인 경우 즉시 관리자 모드가 활성화됩니다.");
     } catch (err: any) {
-      console.error(err);
-      alert("구글 로그인을 할 수 없습니다: " + (err.message || err));
+      console.error("Google Auth Failure Details:", err);
+      const errorCode = err.code || "";
+      
+      if (errorCode === 'auth/popup-blocked') {
+        alert(
+          "※ 브라우저 팝업이 차단되었습니다.\n\n" +
+          "현재 크롬 혹은 Safari 브라우저에서 새창 팝업이 막혀 있습니다. 주소창 우측의 팝업 차단 마크를 클릭하여 허용으로 변경하시거나, 또는 우측 상단의 '새 창에서 열기' 아이콘을 눌러 전체 창 모드에서 다시 시도해 주세요."
+        );
+      } else if (errorCode === 'auth/unauthorized-domain') {
+        alert(
+          "※ Firebase 구글 로그인 도메인 등록이 필요합니다.\n\n" +
+          "다음 공유/개발 주소가 Firebase 프로젝트에 '승인된 도메인'으로 포함되어 있지 않습니다.\n\n" +
+          "■ 등록할 도메인:\n" + window.location.hostname + "\n\n" +
+          "■ 해결 방법:\n" +
+          "1. Firebase Console -> Authentication -> Settings(설정) -> Authorized domains(승인된 도메인) 섹션으로 이동합니다.\n" +
+          "2. '도메인 추가' 버튼을 눌러 위 도메인을 정확히 추가해 주세요.\n\n" +
+          "※ 등록 완료 전까지는 비밀번호 입력창에 즉시 로그인 가능한 마스터 비밀번호(saemaum2026)를 입력하여 원활히 작업을 속행하실 수 있습니다."
+        );
+      } else if (errorCode === 'auth/operation-not-allowed') {
+        alert(
+          "※ Firebase 구글 로그인 서비스가 비활성화되어 있습니다.\n\n" +
+          "Firebase Console -> Authentication -> Sign-in method에서 'Google' 소셜 로그인 공급업체가 활성화(Enabled) 상태인지 확인해 주시기 바랍니다."
+        );
+      } else {
+        alert(
+          "구글 로그인을 처리할 수 없습니다.\n" +
+          "오류 메시지: " + (err.message || err) + "\n\n" +
+          "※ 임시 조치:\n" +
+          "구글 로그인 창이 노출되지 않거나 프로젝트 미연동 오류 발생 시, 비밀번호란에 'saemaum2026' 마스터 코드를 즉시 입력하여 마스터 최고 관리자로 신속하게 로그인하실 수 있습니다."
+        );
+      }
     }
   };
 
@@ -3421,6 +3768,7 @@ export default function App() {
             >
               <AdminConsole 
                 user={user}
+                userRole={userRole}
                 onLogout={handleLogout}
                 onLoginClick={() => setIsLoginModalOpen(true)}
                 customGoogleFormUrl={customGoogleFormUrl}
@@ -3501,7 +3849,7 @@ export default function App() {
                 const passwordInput = loginPassword;
                 
                 if (!passwordInput) {
-                  setLoginError("비밀번호 또는 마스터 코드를 입력해주세요.");
+                  setLoginError("비밀번호를 입력해주세요.");
                   return;
                 }
 
@@ -3518,13 +3866,13 @@ export default function App() {
                   setIsLoginModalOpen(false);
                   setLoginEmail('');
                   setLoginPassword('');
-                  alert("새마음 마스터 권한으로 간편하게 인증되었습니다! (수정 및 추가 내역이 브라우저에 안전히 저장됩니다)");
+                  alert("마스터 관리자 권한으로 인증되었습니다.");
                   return;
                 }
 
                 // If they entered an email and want to try real firebase auth
                 if (!emailInput) {
-                  setLoginError("이메일을 입력하시거나 혹은 비밀번호 입력창에 바로 마스터 코드 'saemaum2026'을 입력하세요.");
+                  setLoginError("관리자 이메일과 비밀번호를 올바르게 입력해 주세요.");
                   return;
                 }
 
@@ -3546,11 +3894,11 @@ export default function App() {
                 }
               }} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1">관리자 이메일 (Firebase)</label>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">관리자 이메일</label>
                   <div className="relative">
                     <input 
                       type="text" 
-                      placeholder="admin@example.com (또는 마스터 키 로그인 시 공란)" 
+                      placeholder="admin@example.com" 
                       className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-medium text-slate-800"
                       value={loginEmail}
                       onChange={(e) => setLoginEmail(e.target.value)}
@@ -3562,12 +3910,12 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1">관리자 비밀번호 또는 마스터 코드 *</label>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">비밀번호 *</label>
                   <div className="relative">
                     <input 
                       type="password" 
                       required
-                      placeholder="비밀번호 또는 마스터 코드 가령 'saemaum2026' 입력" 
+                      placeholder="비밀번호를 입력해 주세요" 
                       className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-medium text-slate-800"
                       value={loginPassword}
                       onChange={(e) => setLoginPassword(e.target.value)}
@@ -3608,8 +3956,8 @@ export default function App() {
               </button>
 
               <div className="mt-5 text-[11px] text-slate-400 leading-relaxed text-center space-y-1">
-                <p>※ 마스터 코드 <span className="font-bold text-emerald-800 select-all p-0.5 bg-emerald-50 rounded">saemaum2026</span>을 비밀번호란에 바로 입력하여 로그인할 수 있습니다.</p>
-                <p>※ 구글 팝업 오류 발생 시 혹은 깃허브 배포 환경에서는 마스터 코드를 권장합니다.</p>
+                <p>※ 등록된 관리자 이메일과 비밀번호를 전산 보완망을 통해 입력하고 로그인할 수 있습니다.</p>
+                <p>※ 권한 승인 및 비밀번호 재발급 요구 시 시스템 운영 관리자에게 원격 신청해 주시기 바랍니다.</p>
               </div>
             </motion.div>
           </div>
