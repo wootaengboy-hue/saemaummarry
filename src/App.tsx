@@ -3066,18 +3066,36 @@ const AdminConsole = ({
     }
   };
 
-  const handleSaveGoogle = (e: React.FormEvent) => {
+  const handleSaveGoogle = async (e: React.FormEvent) => {
     e.preventDefault();
-    setCustomGoogleFormUrl(googleInput);
-    localStorage.setItem('test_google_form_url', googleInput);
-    alert("구글 설문지(새마음 신청서) 연동 주소가 수정 및 저장되었습니다.");
+    try {
+      await setDoc(doc(db, 'settings', 'links'), {
+        googleFormUrl: googleInput,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+      setCustomGoogleFormUrl(googleInput);
+      localStorage.setItem('test_google_form_url', googleInput);
+      alert("구글 설문지(새마음 신청서) 연동 주소가 전산망에 안전하게 동기화되어 저장되었습니다.");
+    } catch (err: any) {
+      console.error(err);
+      alert("전산망에 구글 신청서 주소 저장 실패: " + err.message);
+    }
   };
 
-  const handleSaveKakao = (e: React.FormEvent) => {
+  const handleSaveKakao = async (e: React.FormEvent) => {
     e.preventDefault();
-    setCustomKakaoChUrl(kakaoInput);
-    localStorage.setItem('test_kakao_ch_url', kakaoInput);
-    alert("카카오톡 1:1 상담 채널 연동 주소가 수정 및 저장되었습니다.");
+    try {
+      await setDoc(doc(db, 'settings', 'links'), {
+        kakaoChUrl: kakaoInput,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+      setCustomKakaoChUrl(kakaoInput);
+      localStorage.setItem('test_kakao_ch_url', kakaoInput);
+      alert("카카오톡 1:1 상담 채널 연동 주소가 전산망에 안전하게 동기화되어 저장되었습니다.");
+    } catch (err: any) {
+      console.error(err);
+      alert("전산망에 카카오톡 주소 저장 실패: " + err.message);
+    }
   };
 
   const testLink = (url: string) => {
@@ -3596,6 +3614,28 @@ export default function App() {
   });
   const [tempInputUrl, setTempInputUrl] = useState('');
 
+  useEffect(() => {
+    // Sync Google Form & Kakao counseling links globally from Firestore in real-time
+    const settingsDocRef = doc(db, 'settings', 'links');
+    const unsubscribeSettings = onSnapshot(settingsDocRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        if (data.googleFormUrl !== undefined) {
+          setCustomGoogleFormUrl(data.googleFormUrl);
+          localStorage.setItem('test_google_form_url', data.googleFormUrl);
+        }
+        if (data.kakaoChUrl !== undefined) {
+          setCustomKakaoChUrl(data.kakaoChUrl);
+          localStorage.setItem('test_kakao_ch_url', data.kakaoChUrl);
+        }
+      }
+    }, (error) => {
+      console.warn("Firestore settings document real-time sync failed or not set up:", error);
+    });
+
+    return () => unsubscribeSettings();
+  }, []);
+
   const finalGoogleFormUrl = customGoogleFormUrl || ENV_GOOGLE_FORM_URL || '';
   const isGoogleFormConfigured = finalGoogleFormUrl !== '' && finalGoogleFormUrl !== 'YOUR_GOOGLE_FORM_URL';
 
@@ -3634,10 +3674,20 @@ export default function App() {
     }
   };
 
-  const handleSaveTestUrl = () => {
+  const handleSaveTestUrl = async () => {
     if (activeModal === 'google') {
       setCustomGoogleFormUrl(tempInputUrl);
       localStorage.setItem('test_google_form_url', tempInputUrl);
+      if (isAdminMode) {
+        try {
+          await setDoc(doc(db, 'settings', 'links'), {
+            googleFormUrl: tempInputUrl,
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
+        } catch (err) {
+          console.error("Failed to save googleFormUrl to Firestore:", err);
+        }
+      }
       if (tempInputUrl) {
          try {
            window.open(tempInputUrl, '_blank', 'noopener,noreferrer');
@@ -3648,6 +3698,16 @@ export default function App() {
     } else if (activeModal === 'kakao') {
       setCustomKakaoChUrl(tempInputUrl);
       localStorage.setItem('test_kakao_ch_url', tempInputUrl);
+      if (isAdminMode) {
+        try {
+          await setDoc(doc(db, 'settings', 'links'), {
+            kakaoChUrl: tempInputUrl,
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
+        } catch (err) {
+          console.error("Failed to save kakaoChUrl to Firestore:", err);
+        }
+      }
       if (tempInputUrl) {
          try {
            window.open(tempInputUrl, '_blank', 'noopener,noreferrer');

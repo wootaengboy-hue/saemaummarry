@@ -54,6 +54,16 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["title", "content", "author", "date"]
+    },
+    "settings": {
+      "title": "Settings",
+      "description": "Global application settings and links",
+      "type": "object",
+      "properties": {
+        "googleFormUrl": { "type": "string" },
+        "kakaoChUrl": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
     }
   },
   "firestore": {
@@ -72,6 +82,10 @@
     "/reviews/{reviewId}": {
       "schema": "review",
       "description": "Collection of success stories"
+    },
+    "/settings/{settingsId}": {
+      "schema": "settings",
+      "description": "Global settings and links document"
     }
   }
 }
