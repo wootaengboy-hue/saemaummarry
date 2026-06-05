@@ -75,6 +75,32 @@ const ENV_KAKAO_CH_URL =
   (globalThis as any).VITE_KAKAO_CH_URL ||
   '';
 
+// --- Safe Local Storage Handlers to prevent QuotaExceededError/SecurityError in Private/Incognito Windows ---
+const safeGetLocalStorage = (key: string, fallback: string = ''): string => {
+  try {
+    return localStorage.getItem(key) || fallback;
+  } catch (error) {
+    console.warn(`Local storage read blocked/failed for key "${key}":`, error);
+    return fallback;
+  }
+};
+
+const safeSetLocalStorage = (key: string, value: string) => {
+  try {
+    localStorage.setItem(key, value);
+  } catch (error) {
+    console.warn(`Local storage write blocked/failed for key "${key}":`, error);
+  }
+};
+
+const safeRemoveLocalStorage = (key: string) => {
+  try {
+    localStorage.removeItem(key);
+  } catch (error) {
+    console.warn(`Local storage delete blocked/failed for key "${key}":`, error);
+  }
+};
+
 // --- Error Handling ---
 enum OperationType {
   CREATE = 'create',
@@ -3074,7 +3100,7 @@ const AdminConsole = ({
         updatedAt: new Date().toISOString()
       }, { merge: true });
       setCustomGoogleFormUrl(googleInput);
-      localStorage.setItem('test_google_form_url', googleInput);
+      safeSetLocalStorage('test_google_form_url', googleInput);
       alert("구글 설문지(새마음 신청서) 연동 주소가 전산망에 안전하게 동기화되어 저장되었습니다.");
     } catch (err: any) {
       console.error(err);
@@ -3090,7 +3116,7 @@ const AdminConsole = ({
         updatedAt: new Date().toISOString()
       }, { merge: true });
       setCustomKakaoChUrl(kakaoInput);
-      localStorage.setItem('test_kakao_ch_url', kakaoInput);
+      safeSetLocalStorage('test_kakao_ch_url', kakaoInput);
       alert("카카오톡 1:1 상담 채널 연동 주소가 전산망에 안전하게 동기화되어 저장되었습니다.");
     } catch (err: any) {
       console.error(err);
@@ -3607,10 +3633,10 @@ export default function App() {
   // Google / Kakao states lifted
   const [activeModal, setActiveModal] = useState<'google' | 'kakao' | null>(null);
   const [customGoogleFormUrl, setCustomGoogleFormUrl] = useState(() => {
-    return localStorage.getItem('test_google_form_url') || '';
+    return safeGetLocalStorage('test_google_form_url') || '';
   });
   const [customKakaoChUrl, setCustomKakaoChUrl] = useState(() => {
-    return localStorage.getItem('test_kakao_ch_url') || '';
+    return safeGetLocalStorage('test_kakao_ch_url') || '';
   });
   const [tempInputUrl, setTempInputUrl] = useState('');
 
@@ -3622,11 +3648,11 @@ export default function App() {
         const data = snapshot.data();
         if (data.googleFormUrl !== undefined) {
           setCustomGoogleFormUrl(data.googleFormUrl);
-          localStorage.setItem('test_google_form_url', data.googleFormUrl);
+          safeSetLocalStorage('test_google_form_url', data.googleFormUrl);
         }
         if (data.kakaoChUrl !== undefined) {
           setCustomKakaoChUrl(data.kakaoChUrl);
-          localStorage.setItem('test_kakao_ch_url', data.kakaoChUrl);
+          safeSetLocalStorage('test_kakao_ch_url', data.kakaoChUrl);
         }
       }
     }, (error) => {
@@ -3677,7 +3703,7 @@ export default function App() {
   const handleSaveTestUrl = async () => {
     if (activeModal === 'google') {
       setCustomGoogleFormUrl(tempInputUrl);
-      localStorage.setItem('test_google_form_url', tempInputUrl);
+      safeSetLocalStorage('test_google_form_url', tempInputUrl);
       if (isAdminMode) {
         try {
           await setDoc(doc(db, 'settings', 'links'), {
@@ -3690,14 +3716,14 @@ export default function App() {
       }
       if (tempInputUrl) {
          try {
-           window.open(tempInputUrl, '_blank', 'noopener,noreferrer');
+            window.open(tempInputUrl, '_blank', 'noopener,noreferrer');
          } catch (err) {
-           console.error('Failed to open window:', err);
+            console.error('Failed to open window:', err);
          }
       }
     } else if (activeModal === 'kakao') {
       setCustomKakaoChUrl(tempInputUrl);
-      localStorage.setItem('test_kakao_ch_url', tempInputUrl);
+      safeSetLocalStorage('test_kakao_ch_url', tempInputUrl);
       if (isAdminMode) {
         try {
           await setDoc(doc(db, 'settings', 'links'), {
@@ -3710,9 +3736,9 @@ export default function App() {
       }
       if (tempInputUrl) {
          try {
-           window.open(tempInputUrl, '_blank', 'noopener,noreferrer');
+            window.open(tempInputUrl, '_blank', 'noopener,noreferrer');
          } catch (err) {
-           console.error('Failed to open window:', err);
+            console.error('Failed to open window:', err);
          }
       }
     }
