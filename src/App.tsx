@@ -3094,33 +3094,51 @@ const AdminConsole = ({
 
   const handleSaveGoogle = async (e: React.FormEvent) => {
     e.preventDefault();
+    // 1. Update local state and storage first so it works instantly in the current window & session
+    setCustomGoogleFormUrl(googleInput);
+    safeSetLocalStorage('test_google_form_url', googleInput);
+
     try {
+      // 2. Attempt synchronizing to global database (Firestore)
       await setDoc(doc(db, 'settings', 'links'), {
         googleFormUrl: googleInput,
         updatedAt: new Date().toISOString()
       }, { merge: true });
-      setCustomGoogleFormUrl(googleInput);
-      safeSetLocalStorage('test_google_form_url', googleInput);
-      alert("구글 설문지(새마음 신청서) 연동 주소가 전산망에 안전하게 동기화되어 저장되었습니다.");
+      alert("구글 설문지(새마음 신청서) 연동 주소가 전산망에 안전하게 동기화되어 저장되었습니다.\n\n이제 이 주소는 다른 기기나 시크릿 모드 등 모든 유저에게 즉시 반영됩니다.");
     } catch (err: any) {
       console.error(err);
-      alert("전산망에 구글 신청서 주소 저장 실패: " + err.message);
+      alert(
+        "※ 전산망(서버) 동기화 권한이 확보되지 않아, 우선 현재 관리자 화면 브라우저(Local Storage) 영역에 신청서 주소를 성공적으로 즉시 연결하였습니다.\n\n" +
+        "■ 현재 창 작동 상태:\n" +
+        "현재 방문하신 창에서는 지금 즉시 연결된 신청서 쓰기가 정상 작동합니다.\n\n" +
+        "■ 전 세계 모든 방문자 주소 영구 동기화 방법:\n" +
+        "다른 기기나 시크릿창에서도 전산망을 통해 동일하게 자동 연동되게 하려면, 우측 상단 '관리자 로그인' 버튼을 통해 실제 대표 관리자 구글 계정(wootaengboy@gmail.com) 혹은 등록 승인된 정식 임직원 이메일 계정으로 안전 로그인을 다시 진행해 주시기 바랍니다."
+      );
     }
   };
 
   const handleSaveKakao = async (e: React.FormEvent) => {
     e.preventDefault();
+    // 1. Update local state and storage first so it works instantly in the current window & session
+    setCustomKakaoChUrl(kakaoInput);
+    safeSetLocalStorage('test_kakao_ch_url', kakaoInput);
+
     try {
+      // 2. Attempt synchronizing to global database (Firestore)
       await setDoc(doc(db, 'settings', 'links'), {
         kakaoChUrl: kakaoInput,
         updatedAt: new Date().toISOString()
       }, { merge: true });
-      setCustomKakaoChUrl(kakaoInput);
-      safeSetLocalStorage('test_kakao_ch_url', kakaoInput);
-      alert("카카오톡 1:1 상담 채널 연동 주소가 전산망에 안전하게 동기화되어 저장되었습니다.");
+      alert("카카오톡 1:1 상담 채널 연동 주소가 전산망에 안전하게 동기화되어 저장되었습니다.\n\n이제 이 주소는 다른 기기나 시크릿 모드 등 모든 유저에게 즉시 반영됩니다.");
     } catch (err: any) {
       console.error(err);
-      alert("전산망에 카카오톡 주소 저장 실패: " + err.message);
+      alert(
+        "※ 전산망(서버) 동기화 권한이 확보되지 않아, 우선 현재 관리자 화면 브라우저(Local Storage) 영역에 카카오 채널 주소를 성공적으로 즉시 연결하였습니다.\n\n" +
+        "■ 현재 창 작동 상태:\n" +
+        "현재 방문하신 창에서는 지금 즉시 연결된 카카오 상담 열기가 정상 작동합니다.\n\n" +
+        "■ 전 세계 모든 방문자 주소 영구 동기화 방법:\n" +
+        "다른 기기나 시크릿창에서도 전산망을 통해 동일하게 자동 연동되게 하려면, 우측 상단 '관리자 로그인' 버튼을 통해 실제 대표 관리자 구글 계정(wootaengboy@gmail.com) 혹은 등록 승인된 정식 임직원 이메일 계정으로 안전 로그인을 다시 진행해 주시기 바랍니다."
+      );
     }
   };
 
@@ -3939,7 +3957,49 @@ export default function App() {
                   return;
                 }
 
-                // Check local master key fallback first
+                // 1. If they entered a proper email, attempt real Firebase Authenticated login first
+                if (emailInput.includes('@')) {
+                  try {
+                    const userCredential = await signInWithEmail(emailInput, passwordInput);
+                    setUser(userCredential.user);
+                    setIsAdminMode(true);
+                    setIsLoginModalOpen(false);
+                    setLoginEmail('');
+                    setLoginPassword('');
+                    alert("인증 완료: 새마음 정식 직원 관리자 계정으로 로그인되었습니다.");
+                    return;
+                  } catch (err: any) {
+                    // If login failed, check if they used saemaum2026 and we should fall back to local mock login
+                    if (passwordInput === 'saemaum2026') {
+                      const masterUser = { 
+                        email: emailInput || 'admin@saemaum.com', 
+                        emailVerified: true,
+                        uid: 'master-local',
+                        displayName: '마스터 관리자'
+                      };
+                      setUser(masterUser as any);
+                      setIsAdminMode(true);
+                      setIsLoginModalOpen(false);
+                      setLoginEmail('');
+                      setLoginPassword('');
+                      alert(
+                        "인증 정보가 파이어베이스에 존재하지 않거나 비밀번호가 다르나, 입력된 백업 비밀번호(saemaum2026)를 통해 마스터 관리자(로컬 우회 모드)로 성공적으로 가착륙하였습니다.\n\n" +
+                        "※ 주의: 전산망(Firebase) 서버 동기화 작업에 일부 제한이 있을 수 있으므로, 확실한 전산 영구 동기화를 하실 때는 가급적 우측 상단의 '대표 관리자 구글 계정(wootaengboy@gmail.com)' 연동 로그인을 사용해 주세요."
+                      );
+                      return;
+                    }
+
+                    console.error("Firebase Login Failure:", err);
+                    let displayMsg = "로그인에 실패했습니다. 이메일과 비밀번호를 다시 확인해 주세요.";
+                    if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
+                      displayMsg = "등록되지 않은 관리자 이메일이거나 비밀번호가 다릅니다.";
+                    }
+                    setLoginError(displayMsg);
+                    return;
+                  }
+                }
+
+                // 2. Local mock login fallback (if no @ in email input, e.g. "admin" and "saemaum2026")
                 if (passwordInput === 'saemaum2026' || (emailInput.toLowerCase() === 'admin' && passwordInput === 'saemaum2026')) {
                   const masterUser = { 
                     email: 'admin@saemaum.com', 
@@ -3952,31 +4012,13 @@ export default function App() {
                   setIsLoginModalOpen(false);
                   setLoginEmail('');
                   setLoginPassword('');
-                  alert("마스터 관리자 권한으로 인증되었습니다.");
+                  alert("임시 승인: 마스터 관리자 로컬 권한으로 인증되었습니다.");
                   return;
                 }
 
-                // If they entered an email and want to try real firebase auth
                 if (!emailInput) {
                   setLoginError("관리자 이메일과 비밀번호를 올바르게 입력해 주세요.");
                   return;
-                }
-
-                try {
-                  const userCredential = await signInWithEmail(emailInput, passwordInput);
-                  setUser(userCredential.user);
-                  setIsAdminMode(true);
-                  setIsLoginModalOpen(false);
-                  setLoginEmail('');
-                  setLoginPassword('');
-                  alert("관리자 계정으로 환영합니다!");
-                } catch (err: any) {
-                  console.error(err);
-                  let displayMsg = "로그인에 실패했습니다. 이메일과 비밀번호를 다시 확인해 주세요.";
-                  if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
-                    displayMsg = "등록되지 않은 관리자 이메일이거나 비밀번호가 다릅니다.";
-                  }
-                  setLoginError(displayMsg);
                 }
               }} className="space-y-4">
                 <div>
