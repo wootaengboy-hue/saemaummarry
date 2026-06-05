@@ -43,7 +43,7 @@ import {
   setDoc
 } from 'firebase/firestore';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
-import { db, auth, signInWithGoogle, signInWithEmail, logout } from './lib/firebase';
+import { db, auth, signInWithGoogle, signInWithEmail, signUpWithEmail, logout } from './lib/firebase';
 
 // --- Static Images for Production Build Safety ---
 import myNewLogo from './assets/images/my_new_logo.png';
@@ -3949,47 +3949,77 @@ export default function App() {
                 e.preventDefault();
                 setLoginError('');
                 
-                const emailInput = loginEmail.trim();
+                let emailInput = loginEmail.trim();
                 const passwordInput = loginPassword;
                 
                 if (!passwordInput) {
-                  setLoginError("비밀번호를 입력해주세요.");
+                   setLoginError("비밀번호를 입력해주세요.");
+                   return;
+                }
+
+                if (!emailInput) {
+                  setLoginError("이메일 혹은 관리자 아이디를 입력해주세요.");
                   return;
                 }
 
-                // 1. If they entered a proper email, attempt real Firebase Authenticated login first
+                // Auto-normalize "admin" or "마스터" shorthand to real email for Firebase Auth registration
+                if (emailInput.toLowerCase() === 'admin' || emailInput === '마스터') {
+                  emailInput = 'admin@saemaum.com';
+                }
+
+                // If they entered a proper email (or we normalized it to one), attempt real login / auto-registration
                 if (emailInput.includes('@')) {
                   try {
+                    // Try to log in with real Firebase Auth credentials to get write permissions
                     const userCredential = await signInWithEmail(emailInput, passwordInput);
                     setUser(userCredential.user);
                     setIsAdminMode(true);
                     setIsLoginModalOpen(false);
                     setLoginEmail('');
                     setLoginPassword('');
-                    alert("인증 완료: 새마음 정식 직원 관리자 계정으로 로그인되었습니다.");
+                    alert("인증 완료: 전산망에 안전하게 접속되어 정식 직원 권한이 보장됩니다.");
                     return;
                   } catch (err: any) {
-                    // If login failed, check if they used saemaum2026 and we should fall back to local mock login
+                    // Try auto-registration if credentials don't exist yet and password is correct (saemaum2026)
                     if (passwordInput === 'saemaum2026') {
-                      const masterUser = { 
-                        email: emailInput || 'admin@saemaum.com', 
-                        emailVerified: true,
-                        uid: 'master-local',
-                        displayName: '마스터 관리자'
-                      };
-                      setUser(masterUser as any);
-                      setIsAdminMode(true);
-                      setIsLoginModalOpen(false);
-                      setLoginEmail('');
-                      setLoginPassword('');
-                      alert(
-                        "인증 정보가 파이어베이스에 존재하지 않거나 비밀번호가 다르나, 입력된 백업 비밀번호(saemaum2026)를 통해 마스터 관리자(로컬 우회 모드)로 성공적으로 가착륙하였습니다.\n\n" +
-                        "※ 주의: 전산망(Firebase) 서버 동기화 작업에 일부 제한이 있을 수 있으므로, 확실한 전산 영구 동기화를 하실 때는 가급적 우측 상단의 '대표 관리자 구글 계정(wootaengboy@gmail.com)' 연동 로그인을 사용해 주세요."
-                      );
-                      return;
+                      try {
+                        const userCredential = await signUpWithEmail(emailInput, passwordInput);
+                        setUser(userCredential.user);
+                        setIsAdminMode(true);
+                        setIsLoginModalOpen(false);
+                        setLoginEmail('');
+                        setLoginPassword('');
+                        alert(
+                          "정식 마스터인증 및 가입 완료!\n\n" +
+                          "입력하신 계정(" + emailInput + ")이 전산망(파이어베이스)에 최고 관리자 그룹으로 최초 자동 등록 완료되었습니다.\n\n" +
+                          "이제 이 기기 및 도메인에서 저장하는 구글 링크와 카톡 상담 링크는 전 세계 모든 시크릿 창과 타 기기 유저들에게 실시간 완전 동기화 및 전파됩니다."
+                        );
+                        return;
+                      } catch (signUpErr: any) {
+                        console.error("Auto registration signup fallback error:", signUpErr);
+                        // If signup also fails (e.g., email already registered but typed wrong password, or network block)
+                        // fallback to local active mockup model
+                        const masterUser = { 
+                          email: emailInput, 
+                          emailVerified: true,
+                          uid: 'master-local',
+                          displayName: '마스터 관리자'
+                        };
+                        setUser(masterUser as any);
+                        setIsAdminMode(true);
+                        setIsLoginModalOpen(false);
+                        setLoginEmail('');
+                        setLoginPassword('');
+                        alert(
+                          "임시 우회 진입 안내:\n" +
+                          "입력된 마스터 비밀번호(saemaum2026)를 통해 마스터 권한(로컬 우회 브라우저 전용)으로 가입되었습니다.\n\n" +
+                          "※ 이 모드는 브라우저 메모리 전용으로 작동하여 전산망(서버) 동기화 시 권한 한계가 있을 수 있습니다. 가급적 올바른 계정에 대한 정식 연동 로그인을 추후 진행해 주시기 바랍니다."
+                        );
+                        return;
+                      }
                     }
 
-                    console.error("Firebase Login Failure:", err);
+                    console.error("Firebase Auth Sign-In Failure:", err);
                     let displayMsg = "로그인에 실패했습니다. 이메일과 비밀번호를 다시 확인해 주세요.";
                     if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
                       displayMsg = "등록되지 않은 관리자 이메일이거나 비밀번호가 다릅니다.";
@@ -3999,27 +4029,7 @@ export default function App() {
                   }
                 }
 
-                // 2. Local mock login fallback (if no @ in email input, e.g. "admin" and "saemaum2026")
-                if (passwordInput === 'saemaum2026' || (emailInput.toLowerCase() === 'admin' && passwordInput === 'saemaum2026')) {
-                  const masterUser = { 
-                    email: 'admin@saemaum.com', 
-                    emailVerified: true,
-                    uid: 'master-local',
-                    displayName: '마스터 관리자'
-                  };
-                  setUser(masterUser as any);
-                  setIsAdminMode(true);
-                  setIsLoginModalOpen(false);
-                  setLoginEmail('');
-                  setLoginPassword('');
-                  alert("임시 승인: 마스터 관리자 로컬 권한으로 인증되었습니다.");
-                  return;
-                }
-
-                if (!emailInput) {
-                  setLoginError("관리자 이메일과 비밀번호를 올바르게 입력해 주세요.");
-                  return;
-                }
+                setLoginError("이메일 주소 형식 혹은 'admin' ID를 정확히 기입하여 로그인해주십시오.");
               }} className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 mb-1">관리자 이메일</label>
